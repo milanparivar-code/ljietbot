@@ -1,0 +1,257 @@
+{
+  "998877": {
+    "emp_code": "00000365",
+    "name": "MILAN PATEL",
+    "short_name": "",
+    "initials": "",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "password": "secret",
+    "login_year": "01/07/2026LJIET",
+    "balance_mode": "portal",
+    "balances": {
+      "CL": "11.25",
+      "SD": "0.00",
+      "EL": "0.00",
+      "SL": "8.50",
+      "RH": "1.00",
+      "LWP": "0.00",
+      "VL": "50.00",
+      "DL": "0.00"
+    }
+  },
+  "12345678": {
+    "emp_code": "00000365",
+    "name": "MILAN PATEL",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "password": "testpass",
+    "login_year": "01/07/2026LJIET",
+    "balance_mode": "portal",
+    "balances": {
+      "CL": "11.25",
+      "SD": "0.00",
+      "EL": "0.00",
+      "SL": "8.50",
+      "RH": "1.00",
+      "LWP": "0.00",
+      "VL": "50.00",
+      "DL": "0.00"
+    }
+  },
+  "100": {
+    "emp_code": "00000100",
+    "name": "Faculty 100",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "100"
+    }
+  },
+  "101": {
+    "emp_code": "00000101",
+    "name": "Faculty 101",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "101"
+    }
+  },
+  "102": {
+    "emp_code": "00000102",
+    "name": "Faculty 102",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "102"
+    }
+  },
+  "103": {
+    "emp_code": "00000103",
+    "name": "Faculty 103",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "103"
+    }
+  },
+  "104": {
+    "emp_code": "00000104",
+    "name": "Faculty 104",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "104"
+    }
+  },
+  "105": {
+    "emp_code": "00000105",
+    "name": "Faculty 105",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "105"
+    }
+  },
+  "106": {
+    "emp_code": "00000106",
+    "name": "Faculty 106",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "106"
+    }
+  },
+  "107": {
+    "emp_code": "00000107",
+    "name": "Faculty 107",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "107"
+    }
+  },
+  "108": {
+    "emp_code": "00000108",
+    "name": "Faculty 108",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "108"
+    }
+  },
+  "109": {
+    "emp_code": "00000109",
+    "name": "Faculty 109",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "109"
+    }
+  },
+  "110": {
+    "emp_code": "00000110",
+    "name": "Faculty 110",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "110"
+    }
+  },
+  "111": {
+    "emp_code": "00000111",
+    "name": "Faculty 111",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "111"
+    }
+  },
+  "112": {
+    "emp_code": "00000112",
+    "name": "Faculty 112",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "112"
+    }
+  },
+  "113": {
+    "emp_code": "00000113",
+    "name": "Faculty 113",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "113"
+    }
+  },
+  "114": {
+    "emp_code": "00000114",
+    "name": "Faculty 114",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "114"
+    }
+  },
+  "115": {
+    "emp_code": "00000115",
+    "name": "Faculty 115",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "115"
+    }
+  },
+  "116": {
+    "emp_code": "00000116",
+    "name": "Faculty 116",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "116"
+    }
+  },
+  "117": {
+    "emp_code": "00000117",
+    "name": "Faculty 117",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "117"
+    }
+  },
+  "118": {
+    "emp_code": "00000118",
+    "name": "Faculty 118",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "118"
+    }
+  },
+  "119": {
+    "emp_code": "00000119",
+    "name": "Faculty 119",
+    "dept": "Civil Engineering",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "balances": {
+      "CL": "119"
+    }
+  },
+  "88776655": {
+    "emp_code": "00000654",
+    "name": "Indrajit Singh",
+    "short_name": "IRS",
+    "initials": "IRS",
+    "dept": "FY1",
+    "position": "Assistant Professor",
+    "position_code": "AP",
+    "password": "pass",
+    "balances": {
+      "CL": "10.0"
+    }
+  }
+}
