@@ -683,7 +683,10 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• 🤖 100% Accurate Timetable Load Adjustments\n\n"
             "👉 *Please sign in with your official ARS Portal credentials:*"
         )
-        kb = [[InlineKeyboardButton("🔑 Login with ARS Credentials", callback_data="START_REG")]]
+        kb = [
+            [InlineKeyboardButton("🔍 Public Lecture Adjustments", callback_data="CMD_CHECK_LOAD")],
+            [InlineKeyboardButton("🔑 Login with ARS Credentials", callback_data="START_REG")],
+        ]
         if update.callback_query:
             await safe_edit_text(update.callback_query, text, reply_markup=InlineKeyboardMarkup(kb))
         else:
@@ -3502,16 +3505,8 @@ async def display_auto_load_options(query, context: ContextTypes.DEFAULT_TYPE):
     kb = []
     for idx, plan in enumerate(plans, 1):
         plan_title = plan["title"]
-        lines.append(f"📋 **{plan_title}:**")
-        for adj in plan["adjustments"]:
-            sub = adj["substitute"]
-            sub_init = sub["initials"]
-            subj = sub["subject"]
-            status_icon = "🟢" if sub.get("is_free") else ("🔗" if sub.get("is_cascade") else "🔄")
-            line = f"  • Lec {adj['duty']['lec_no']} ({adj['slot']}) [{adj['class_div']}]: **{sub_init}** ({subj}) {status_icon}"
-            if sub.get("cascade_detail"):
-                line += f"\n    ↳ *Cascade:* `{sub['cascade_detail']}`"
-            lines.append(line)
+        lines.append(f"📋 **Option {idx}:** {plan_title}")
+        lines.append(format_check_adjustment_table(plan))
         lines.append("")
         btn_text = f"✅ Select Option {idx} (Recommended)" if idx == 1 else f"📋 Select Option {idx}"
         kb.append([InlineKeyboardButton(btn_text, callback_data=f"SELECT_PLAN:{idx-1}")])
@@ -5493,6 +5488,117 @@ def _parse_input_date_or_day(raw_text: str) -> tuple[str, str, str]:
     return None, None, None
 
 
+def _parse_input_date_range(raw_text: str) -> tuple[list, str, str, str]:
+    """Parse one date/day or an inclusive ``DD/MM/YYYY to DD/MM/YYYY`` range."""
+    raw_text = str(raw_text or "").strip()
+    if not raw_text:
+        return [], None, None, None
+    parts = re.split(r"\s+(?:TO|UNTIL|THROUGH)\s+", raw_text, maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) == 1:
+        date_str, day_code, day_name = _parse_input_date_or_day(parts[0])
+        if not date_str:
+            return [], None, None, None
+        parsed = datetime.strptime(date_str, "%d/%m/%Y").date()
+        return [parsed], date_str, date_str, day_name
+
+    start_str, _, _ = _parse_input_date_or_day(parts[0])
+    end_str, _, end_name = _parse_input_date_or_day(parts[1])
+    if not start_str or not end_str:
+        return [], None, None, None
+    start = datetime.strptime(start_str, "%d/%m/%Y").date()
+    end = datetime.strptime(end_str, "%d/%m/%Y").date()
+    if end < start:
+        return [], None, None, None
+    dates = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+    return dates, start_str, end_str, end_name or start.strftime("%A")
+
+
+async def prompt_check_leave_category(target, context: ContextTypes.DEFAULT_TYPE):
+    """Ask public-checker users for the leave category before showing plans."""
+    cdata = context.user_data.setdefault("check_load", {})
+    fac_name = cdata.get("fac_name") or cdata.get("fac_initial", "FACULTY")
+    date_label = cdata.get("date_range_label") or cdata.get("date_str") or "Selected date"
+    kb = [
+        [InlineKeyboardButton("CL - Casual Leave", callback_data="CHK_CAT:CL"), InlineKeyboardButton("SL - Sick Leave", callback_data="CHK_CAT:SL")],
+        [InlineKeyboardButton("EL - Earned Leave", callback_data="CHK_CAT:EL"), InlineKeyboardButton("RH - Restricted Holiday", callback_data="CHK_CAT:RH")],
+        [InlineKeyboardButton("DL - Duty Leave", callback_data="CHK_CAT:DL"), InlineKeyboardButton("VL - Vacation Leave", callback_data="CHK_CAT:VL")],
+        [InlineKeyboardButton("LWP - Without Pay", callback_data="CHK_CAT:LWP"), InlineKeyboardButton("ExL - Exchanged Leave", callback_data="CHK_CAT:ExL")],
+        [InlineKeyboardButton("🔙 Change Faculty/Date", callback_data="CHK_CHANGE_DATE")],
+    ]
+    text = (
+        "📝 **Public Lecture Adjustment Checker**\n\n"
+        f"• **Faculty:** `{fac_name}`\n"
+        f"• **Leave date/leaves:** `{date_label}`\n\n"
+        "Select the **leave category** to calculate the correct leave type context:"
+    )
+    if isinstance(target, CallbackQuery):
+        await safe_edit_text(target, text, reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await target.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    return CHECK_LOAD_DATE
+
+
+async def prompt_check_leave_type(target, context: ContextTypes.DEFAULT_TYPE):
+    """Ask whether the public check is for full, half, or quarter leave."""
+    cdata = context.user_data.setdefault("check_load", {})
+    category = cdata.get("leave_category", "CL")
+    text = (
+        "⏱️ **Select Leave Type**\n\n"
+        f"Category: **{category}**\n"
+        f"Date/leaves: `{cdata.get('date_range_label', cdata.get('date_str', 'Selected date'))}`\n\n"
+        "This is used for displaying the adjustment context; timetable constraints remain unchanged."
+    )
+    kb = [
+        [InlineKeyboardButton("Full Day (1.0)", callback_data="CHK_TYPE:FULL")],
+        [InlineKeyboardButton("Half Day (0.5)", callback_data="CHK_TYPE:HALF")],
+        [InlineKeyboardButton("0.25 Day", callback_data="CHK_TYPE:QUARTER")],
+        [InlineKeyboardButton("🔙 Change Category", callback_data="CHK_CHANGE_CATEGORY")],
+    ]
+    if isinstance(target, CallbackQuery):
+        await safe_edit_text(target, text, reply_markup=InlineKeyboardMarkup(kb))
+    else:
+        await target.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+    return CHECK_LOAD_DATE
+
+
+async def finalize_public_check_inputs(target, context: ContextTypes.DEFAULT_TYPE):
+    """Load all duties in the selected date range and open constraints."""
+    cdata = context.user_data.setdefault("check_load", {})
+    from timetable_engine import get_timetable_engine
+    engine = get_timetable_engine()
+    engine.ensure_up_to_date()
+    dates = cdata.get("leave_dates") or []
+    fac_initial = cdata.get("fac_initial", "FACULTY")
+    duties = []
+    for selected_date in dates:
+        day_duties = engine.get_faculty_duties_for_date(fac_initial, selected_date)
+        for duty in day_duties:
+            item = dict(duty)
+            item.setdefault("date", selected_date.strftime("%d/%m/%Y"))
+            duties.append(item)
+    cdata["duties"] = duties
+    cdata["excluded_faculty_lectures"] = {}
+    if not duties:
+        text = (
+            "ℹ️ **No Scheduled Duties Found**\n\n"
+            f"Faculty: `{cdata.get('fac_name', fac_initial)}`\n"
+            f"Date/leaves: `{cdata.get('date_range_label', 'Selected date')}`\n"
+            f"Category/type: `{cdata.get('leave_category', 'CL')} / {cdata.get('leave_day_type', 'FULL')}`\n\n"
+            "No timetable lectures or labs were found for this selection."
+        )
+        kb = [
+            [InlineKeyboardButton("📅 Change Date/Leaves", callback_data="CHK_CHANGE_DATE")],
+            [InlineKeyboardButton("👤 Change Faculty", callback_data="CHK_CHANGE_FACULTY")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="CMD_WELCOME")],
+        ]
+        if isinstance(target, CallbackQuery):
+            await safe_edit_text(target, text, reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await target.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        return CHECK_LOAD_VIEW
+    return await prompt_check_load_max_div(target, context)
+
+
 async def check_load_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Entry point for /adjust, /checkload, /load commands or CMD_CHECK_LOAD button.
@@ -5524,6 +5630,11 @@ async def check_load_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "result": None,
         "selected_plan_idx": 0,
         "view_mode": "plan",
+        "excluded_faculty_lectures": {},
+        "leave_category": None,
+        "leave_day_type": None,
+        "leave_dates": [],
+        "date_range_label": None,
     }
     cdata = context.user_data["check_load"]
 
@@ -5542,33 +5653,17 @@ async def check_load_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Arg 1: Date or Day (if passed)
         if len(args) > 1:
             arg_date = " ".join(args[1:]).strip()
-            d_str, d_code, d_name = _parse_input_date_or_day(arg_date)
-            if d_str or d_code:
-                cdata["date_str"] = d_str
-                cdata["day_code"] = d_code
+            dates, start_str, end_str, d_name = _parse_input_date_range(arg_date)
+            if dates:
+                cdata["leave_dates"] = dates
+                cdata["date_str"] = start_str
+                cdata["date_to_str"] = end_str
+                cdata["date_range_label"] = start_str if start_str == end_str else f"{start_str} to {end_str}"
                 cdata["day_name"] = d_name
 
         # If both faculty and date were passed via arguments
         if cdata["fac_initial"] and (cdata["date_str"] or cdata["day_code"]):
-            duties = engine.get_faculty_duties_for_date(cdata["fac_initial"], cdata["date_str"] or cdata["day_code"])
-            cdata["duties"] = duties
-            if not duties:
-                date_disp = cdata["date_str"] or cdata["day_name"] or "Selected Date"
-                text = (
-                    f"ℹ️ **No Scheduled Duties Found**\n\n"
-                    f"• **Faculty:** {cdata['fac_name']} (`{cdata['fac_initial']}`)\n"
-                    f"• **Date / Day:** `{date_disp}` ({cdata.get('day_name', '')})\n\n"
-                    f"This faculty has no scheduled teaching load (lectures/labs) on this day in the master timetable."
-                )
-                kb = [
-                    [InlineKeyboardButton("📅 Pick Another Date", callback_data="CHK_CHANGE_DATE")],
-                    [InlineKeyboardButton("👤 Check Another Faculty", callback_data="CHK_CHANGE_FACULTY")],
-                    [InlineKeyboardButton("🏠 Main Menu", callback_data="CMD_WELCOME")],
-                ]
-                await update.effective_message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-                return CHECK_LOAD_VIEW
-            else:
-                return await prompt_check_load_max_div(update.effective_message, context)
+            return await prompt_check_leave_category(update.effective_message, context)
 
         # If only faculty was passed
         if cdata["fac_initial"]:
@@ -5657,6 +5752,9 @@ async def check_load_faculty_received(update: Update, context: ContextTypes.DEFA
             cdata["fac_initial"] = fac_initial
             cdata["fac_name"] = info.get("name", fac_initial)
             cdata["dept"] = info.get("dept", "")
+            cdata["excluded_faculty_lectures"] = {}
+            cdata["leave_category"] = None
+            cdata["leave_day_type"] = None
             return await prompt_check_load_date(query, context)
 
     # Text message received
@@ -5680,6 +5778,9 @@ async def check_load_faculty_received(update: Update, context: ContextTypes.DEFA
         cdata["fac_initial"] = resolved
         cdata["fac_name"] = info.get("name", resolved)
         cdata["dept"] = info.get("dept", "")
+        cdata["excluded_faculty_lectures"] = {}
+        cdata["leave_category"] = None
+        cdata["leave_day_type"] = None
         return await prompt_check_load_date(update.message, context)
 
     return CHECK_LOAD_FACULTY
@@ -5713,7 +5814,7 @@ async def prompt_check_load_date(target, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📅 Friday", callback_data="CHK_DATE:FRI"),
             InlineKeyboardButton("📅 Saturday", callback_data="CHK_DATE:SAT"),
         ],
-        [InlineKeyboardButton("✍️ Type Custom Date (DD/MM/YYYY)", callback_data="CHK_DATE_TYPE")],
+        [InlineKeyboardButton("✍️ Type Date or Date Range", callback_data="CHK_DATE_TYPE")],
         [
             InlineKeyboardButton("🔙 Back to Faculty", callback_data="CHK_CHANGE_FACULTY"),
             InlineKeyboardButton("🏠 Main Menu", callback_data="CMD_WELCOME")
@@ -5723,7 +5824,7 @@ async def prompt_check_load_date(target, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"📅 **Select Date to Check Load:**\n\n"
         f"• **Faculty:** **{fac_name}** (`{fac_initial}`){dept_disp}\n\n"
-        f"Choose a date or day below, or type any date in `DD/MM/YYYY` format:"
+        f"Choose a date or day below, or type `DD/MM/YYYY` or `DD/MM/YYYY to DD/MM/YYYY`:"
     )
     if isinstance(target, CallbackQuery):
         await safe_edit_text(target, text, reply_markup=InlineKeyboardMarkup(kb))
@@ -5749,71 +5850,71 @@ async def check_load_date_received(update: Update, context: ContextTypes.DEFAULT
             return await prompt_check_load_faculty(query, context)
         if data == "CHK_CHANGE_DATE":
             return await prompt_check_load_date(query, context)
+        if data == "CHK_CHANGE_CATEGORY":
+            return await prompt_check_leave_category(query, context)
         if data == "CHK_DATE_TYPE":
             prompt = (
-                "✍️ **Enter Date or Day of Week**\n\n"
-                "Please type a date (e.g. `14/09/2026`, `tomorrow`) or day of week (e.g. `Monday`):"
+                "✍️ **Enter Leave Date or Date Range**\n\n"
+                "Type `DD/MM/YYYY`, a day (e.g. `Monday`), or a range such as `18/09/2026 to 20/09/2026`:"
             )
             kb = [[InlineKeyboardButton("🔙 Back to Date Selection", callback_data="CHK_CHANGE_DATE")]]
             await safe_edit_text(query, prompt, reply_markup=InlineKeyboardMarkup(kb))
             return CHECK_LOAD_DATE
         if data.startswith("CHK_DATE:"):
             token = data.split(":")[1].strip()
-            d_str, d_code, d_name = _parse_input_date_or_day(token)
-            cdata["date_str"] = d_str
-            cdata["day_code"] = d_code
+            dates, start_str, end_str, d_name = _parse_input_date_range(token)
+            cdata["leave_dates"] = dates
+            cdata["date_str"] = start_str
+            cdata["date_to_str"] = end_str
+            cdata["date_range_label"] = start_str if start_str == end_str else f"{start_str} to {end_str}"
             cdata["day_name"] = d_name
+            cdata["excluded_faculty_lectures"] = {}
+            cdata["leave_category"] = None
+            cdata["leave_day_type"] = None
 
     elif update.message and update.message.text:
         token = update.message.text.strip()
-        d_str, d_code, d_name = _parse_input_date_or_day(token)
-        if not d_str and not d_code:
+        dates, start_str, end_str, d_name = _parse_input_date_range(token)
+        if not dates:
             kb = [
                 [InlineKeyboardButton("🔙 Pick from Date Menu", callback_data="CHK_CHANGE_DATE")],
                 [InlineKeyboardButton("🏠 Main Menu", callback_data="CMD_WELCOME")]
             ]
             await update.message.reply_text(
-                "⚠️ Invalid date format. Please enter as `DD/MM/YYYY` (e.g. `14/09/2026`) or weekday (e.g. `Monday`):",
+                "⚠️ Invalid date format. Use `DD/MM/YYYY` or `DD/MM/YYYY to DD/MM/YYYY`:",
                 reply_markup=InlineKeyboardMarkup(kb),
                 parse_mode="Markdown"
             )
             return CHECK_LOAD_DATE
-        cdata["date_str"] = d_str
-        cdata["day_code"] = d_code
+        cdata["leave_dates"] = dates
+        cdata["date_str"] = start_str
+        cdata["date_to_str"] = end_str
+        cdata["date_range_label"] = start_str if start_str == end_str else f"{start_str} to {end_str}"
         cdata["day_name"] = d_name
+        cdata["excluded_faculty_lectures"] = {}
+        cdata["leave_category"] = None
+        cdata["leave_day_type"] = None
 
-    fac_initial = cdata.get("fac_initial", "FACULTY")
-    duties = engine.get_faculty_duties_for_date(fac_initial, cdata.get("date_str") or cdata.get("day_code"))
-    cdata["duties"] = duties
+    if query and data.startswith("CHK_CAT:"):
+        cdata["leave_category"] = data.split(":", 1)[1]
+        return await prompt_check_leave_type(query, context)
+    if query and data.startswith("CHK_TYPE:"):
+        cdata["leave_day_type"] = data.split(":", 1)[1]
+        return await finalize_public_check_inputs(query, context)
 
     target = query if query else update.message
-    if not duties:
-        date_disp = cdata.get("date_str") or cdata.get("day_name") or "Selected Date"
-        text = (
-            f"ℹ️ **No Scheduled Duties Found**\n\n"
-            f"• **Faculty:** {cdata.get('fac_name', fac_initial)} (`{fac_initial}`)\n"
-            f"• **Date / Day:** `{date_disp}` ({cdata.get('day_name', '')})\n\n"
-            f"This faculty has no scheduled teaching load (lectures/labs) on this day in the master timetable."
-        )
-        kb = [
-            [InlineKeyboardButton("📅 Pick Another Date", callback_data="CHK_CHANGE_DATE")],
-            [InlineKeyboardButton("👤 Check Another Faculty", callback_data="CHK_CHANGE_FACULTY")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="CMD_WELCOME")],
-        ]
-        if isinstance(target, CallbackQuery):
-            await safe_edit_text(target, text, reply_markup=InlineKeyboardMarkup(kb))
-        else:
-            await target.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-        return CHECK_LOAD_VIEW
-
-    return await prompt_check_load_max_div(target, context)
+    if not cdata.get("leave_category"):
+        return await prompt_check_leave_category(target, context)
+    if not cdata.get("leave_day_type"):
+        return await prompt_check_leave_type(target, context)
+    return await finalize_public_check_inputs(target, context)
 
 
 def format_check_load_config_screen(cdata: dict):
     """Renders the unified 1-screen constraint configurator for /checkload and /adjust."""
     fac_initial = cdata.get("fac_initial", "FACULTY")
     fac_name = cdata.get("fac_name", fac_initial)
-    date_disp = cdata.get("date_str") or cdata.get("day_name") or "Date"
+    date_disp = cdata.get("date_range_label") or cdata.get("date_str") or cdata.get("day_name") or "Date"
     day_name = cdata.get("day_name", "")
     duties = cdata.get("duties", [])
     max_div = cdata.get("max_div", 2)
@@ -5834,6 +5935,7 @@ def format_check_load_config_screen(cdata: dict):
     prompt = (
         f"📚 **Load Adjustment for {fac_name} (`{fac_initial}`):**\n"
         f"📅 Date: `{date_disp}` ({day_name})\n"
+        f"📝 Leave: `{cdata.get('leave_category', 'CL')}` | `{cdata.get('leave_day_type', 'FULL')}`\n"
         f"📋 Found **{len(duties)}** scheduled duties:\n"
         f"{duties_preview}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -6018,6 +6120,109 @@ async def check_load_cascade_picked(update: Update, context: ContextTypes.DEFAUL
     return CHECK_LOAD_CASCADE
 
 
+def _check_proxy_faculties(cdata: dict) -> list:
+    """Collect proxy and cascade faculty choices from the public checker."""
+    result = cdata.get("result", {}) or {}
+    found = {}
+
+    def add(initials, name=""):
+        initials = str(initials or "").upper().replace(" ", "")
+        if initials:
+            found.setdefault(initials, name or initials)
+
+    def add_candidate(candidate):
+        if not isinstance(candidate, dict):
+            return
+        add(candidate.get("initials"), candidate.get("name", ""))
+        for step in candidate.get("chain", []) or []:
+            add(step.get("reliever"), step.get("reliever_name", ""))
+
+    for plan in result.get("plans", []) or []:
+        for adjustment in plan.get("adjustments", []) or []:
+            add_candidate(adjustment.get("substitute"))
+            for step in adjustment.get("chain", []) or []:
+                add(step.get("reliever"), step.get("reliever_name", ""))
+    if not found:
+        for slot in result.get("per_slot_candidates", []) or []:
+            for candidate in slot.get("candidates", []) or []:
+                add_candidate(candidate)
+
+    for initials in (cdata.get("excluded_faculty_lectures", {}) or {}):
+        add(initials)
+    return sorted(found.items(), key=lambda item: (item[0], item[1]))
+
+
+def _check_exclusion_display(cdata: dict) -> str:
+    excluded = cdata.get("excluded_faculty_lectures", {}) or {}
+    parts = []
+    for faculty, lectures in sorted(excluded.items()):
+        values = set(lectures if isinstance(lectures, (list, tuple, set)) else [lectures])
+        if "full_day" in values:
+            label = "Full Day"
+        else:
+            label = ", ".join(str(value) for value in sorted(values, key=str))
+        parts.append(f"{faculty} ({label})")
+    return ", ".join(parts) if parts else "None"
+
+
+async def prompt_check_excluded_faculty(query, context: ContextTypes.DEFAULT_TYPE):
+    """Offer proxy exclusions without requiring the checker user to sign in."""
+    cdata = context.user_data.setdefault("check_load", {})
+    faculties = _check_proxy_faculties(cdata)
+    lines = [
+        "🚫 **Recalculate Without Proxy Faculty**",
+        "",
+        "Select an unavailable or denied proxy/cascade faculty. You can exclude multiple faculties for different lecture numbers.",
+        f"**Current exclusions:** {_check_exclusion_display(cdata)}",
+        "",
+        "The selected Max 2/Max 3/No Limit, merge, department, and cascade rules remain active.",
+    ]
+    kb = []
+    row = []
+    for initials, _name in faculties:
+        row.append(InlineKeyboardButton(f"🚫 {initials}"[:32], callback_data=f"CHK_EXCL_FAC:{initials}"))
+        if len(row) == 3:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    if not faculties:
+        lines.append("\nNo proxy faculty is available in the current result. Change constraints or choose another faculty/date.")
+    kb.extend([
+        [InlineKeyboardButton("🔍 Recalculate Now", callback_data="CHK_EXCL_RECALCULATE")],
+        [InlineKeyboardButton("⚙️ Change Constraints", callback_data="CHK_CHANGE_CONSTRAINTS")],
+        [InlineKeyboardButton("🔙 Back to Adjustments", callback_data="CHK_EXCL_BACK")],
+    ])
+    await safe_edit_text(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb))
+    return CHECK_LOAD_VIEW
+
+
+async def prompt_check_exclusion_lectures(query, context: ContextTypes.DEFAULT_TYPE):
+    """Choose lecture numbers or Full Day for one excluded proxy."""
+    cdata = context.user_data.setdefault("check_load", {})
+    faculty = cdata.get("exclusion_pending_faculty", "")
+    excluded = cdata.setdefault("excluded_faculty_lectures", {})
+    selected = set(excluded.get(faculty, []))
+    lines = [
+        f"🚫 **Exclude `{faculty}` for which lectures?**",
+        "",
+        "Choose one or more lecture numbers, or Full Day.",
+        f"**Selected exclusions:** {_check_exclusion_display(cdata)}",
+    ]
+    kb = [[
+        InlineKeyboardButton(f"{'✅ ' if lec_no in selected else ''}Lec {lec_no}", callback_data=f"CHK_EXCL_LEC:{lec_no}")
+        for lec_no in range(1, 6)
+    ]]
+    kb.extend([
+        [InlineKeyboardButton(f"{'✅ ' if 'full_day' in selected else ''}🌞 Full Day", callback_data="CHK_EXCL_LEC:FULL")],
+        [InlineKeyboardButton("✅ Done With Faculty", callback_data="CHK_EXCL_DONE")],
+        [InlineKeyboardButton("🔍 Recalculate Now", callback_data="CHK_EXCL_RECALCULATE")],
+        [InlineKeyboardButton("🔙 Back to Faculty List", callback_data="CHK_EXCL_BACK")],
+    ])
+    await safe_edit_text(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(kb))
+    return CHECK_LOAD_VIEW
+
+
 async def run_and_display_check_load(query, context: ContextTypes.DEFAULT_TYPE):
     """Executes suggest_load_adjustments and renders the results."""
     from timetable_engine import get_timetable_engine
@@ -6040,12 +6245,63 @@ async def run_and_display_check_load(query, context: ContextTypes.DEFAULT_TYPE):
         include_cascades=include_cascades,
         prefer_min_disturbance=prefer_min_disturbance,
         disturb_other_department=disturb_other_department,
+        include_existing_subject_load=True,
+        excluded_faculty_lectures=cdata.get("excluded_faculty_lectures", {}),
     )
     cdata["result"] = result
     cdata["selected_plan_idx"] = 0
     cdata["view_mode"] = "plan"
 
     return await display_check_load_results(query, context, selected_plan_idx=0, show_whatsapp=False)
+
+
+def _check_table_cell(value, width: int) -> str:
+    """Keep Telegram's monospaced adjustment table aligned and readable."""
+    value = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(value) > width:
+        value = value[:max(1, width - 1)] + "…"
+    return value.ljust(width)
+
+
+def format_check_adjustment_table(plan: dict) -> str:
+    """Format one complete plan as a compact, copy-friendly table."""
+    headers = ["Lec", "Date", "Div", "Subject", "Proxy", "Mode"]
+    widths = [3, 8, 5, 13, 12, 8]
+    separator = "-+-".join("-" * width for width in widths)
+    output = [
+        "```text",
+        " | ".join(_check_table_cell(header, width) for header, width in zip(headers, widths)),
+        separator,
+    ]
+    for adjustment in plan.get("adjustments", []) or []:
+        duty = adjustment.get("duty") or {}
+        substitute = adjustment.get("substitute") or {}
+        if not isinstance(substitute, dict):
+            substitute = {"initials": str(substitute)}
+        mode = "Free" if substitute.get("is_free") else ("Cascade" if substitute.get("is_cascade") else "Merged")
+        date_value = duty.get("date") or adjustment.get("date") or ""
+        try:
+            date_value = datetime.strptime(str(date_value), "%d/%m/%Y").strftime("%d/%m/%y")
+        except Exception:
+            date_value = str(date_value)[0:8]
+        row = [
+            duty.get("lec_no", ""),
+            date_value,
+            duty.get("division", ""),
+            duty.get("subject", ""),
+            substitute.get("initials", ""),
+            mode,
+        ]
+        output.append(" | ".join(_check_table_cell(value, width) for value, width in zip(row, widths)))
+        chain = substitute.get("chain", []) or []
+        if chain:
+            chain_text = " -> ".join(
+                f"{step.get('reliever', '')} in {step.get('division', '')}"
+                for step in chain
+            )
+            output.append(f"    ↳ Cascade: {chain_text}")
+    output.append("```")
+    return "\n".join(output)
 
 
 async def display_check_load_results(query, context: ContextTypes.DEFAULT_TYPE, selected_plan_idx: int = 0, show_whatsapp: bool = False):
@@ -6056,7 +6312,7 @@ async def display_check_load_results(query, context: ContextTypes.DEFAULT_TYPE, 
     fac_initial = cdata.get("fac_initial", "FACULTY")
     fac_name = cdata.get("fac_name", fac_initial)
     dept = cdata.get("dept", "")
-    date_disp = cdata.get("date_str") or cdata.get("day_name") or "Date"
+    date_disp = cdata.get("date_range_label") or cdata.get("date_str") or cdata.get("day_name") or "Date"
     day_name = cdata.get("day_name", "")
     duties = cdata.get("duties", [])
     max_div = cdata.get("max_subject_lectures", cdata.get("max_div", 2))
@@ -6064,19 +6320,23 @@ async def display_check_load_results(query, context: ContextTypes.DEFAULT_TYPE, 
     merged_desc = "Merged Allowed" if cdata.get("allow_merged") else "Free Only"
     casc_desc = "Cascades ON" if cdata.get("include_cascades") else "Cascades OFF"
     dept_desc = "Other Dept Allowed" if cdata.get("disturb_other_department") else "Same Dept Only"
+    leave_context = f"{cdata.get('leave_category', 'CL')} / {cdata.get('leave_day_type', 'FULL')}"
 
     if not plans:
         text = (
             f"⚠️ **No Complete Adjustment Plan Found**\n\n"
             f"• **Faculty:** **{fac_name}** (`{fac_initial}`)\n"
             f"• **Date / Day:** `{date_disp}` ({day_name}) | **{len(duties)}** Duties\n"
-            f"• **Active Constraints:** `{max_desc}` | `{merged_desc}` | `{casc_desc}`\n\n"
+            f"• **Leave Category / Type:** `{leave_context}`\n"
+            f"• **Active Constraints:** `{max_desc}` | `{merged_desc}` | `{casc_desc}`\n"
+            f"• **Excluded Proxies:** `{_check_exclusion_display(cdata)}`\n\n"
             f"No valid combination of whitelisted faculty satisfied all selected constraints for every slot.\n\n"
             f"💡 **Suggested Fixes:**\n"
-            f"• Enable **Cascade Arrangements** to find multi-hop faculty swaps.\n"
-            f"• Enable **Merged Lectures** if teachers have combined classes."
+            f"• Exclude an unavailable proxy and recalculate.\n"
+            f"• Try Max 3/No Limit, other-department faculty, or merged lectures."
         )
         kb = []
+        kb.append([InlineKeyboardButton("🚫 Exclude Proxy / Retry", callback_data="CHK_EXCLUDE_PROXY")])
         if not cdata.get("include_cascades"):
             kb.append([InlineKeyboardButton("🔗 Allow Cascades & Retry", callback_data="CHK_RETRY_CASCADE")])
         if not cdata.get("allow_merged"):
@@ -6154,43 +6414,21 @@ async def display_check_load_results(query, context: ContextTypes.DEFAULT_TYPE, 
     lines = [
         f"🔍 **Lecture Adjustment Plans:**",
         f"👤 **Faculty:** **{fac_name}** (`{fac_initial}`) {f'| {dept}' if dept else ''}",
-        f"📅 **Date:** `{date_disp}` ({day_name}) | **{len(duties)}** Duties",
-        f"⚙️ **Constraints:** `{max_desc}` | `{merged_desc}` | `{dept_desc}` | `{casc_desc}`\n",
+        f"📅 **Leave date/leaves:** `{date_disp}` ({day_name}) | **{len(duties)}** Duties",
+        f"📝 **Category / Type:** `{leave_context}`",
+        f"⚙️ **Constraints:** `{max_desc}` | `{merged_desc}` | `{dept_desc}` | `{casc_desc}`",
+        f"🚫 **Excluded Proxies:** `{_check_exclusion_display(cdata)}`\n",
         f"━━━━━━━━━━━━━━━━━━━━━",
-        f"📋 **{chosen_plan['title']}:**\n"
     ]
 
-    for adj in chosen_plan["adjustments"]:
-        duty = adj.get("duty") or {}
-        sub = adj.get("substitute") or {}
-        sub_init = sub.get("initials") if isinstance(sub, dict) else str(sub)
-        sub_name = sub.get("name", sub_init) if isinstance(sub, dict) else sub_init
-        proxy_subj = sub.get("subject") if isinstance(sub, dict) else adj.get("subject", "")
-        status_icon = "🟢" if (isinstance(sub, dict) and sub.get("is_free")) else ("🔗" if (isinstance(sub, dict) and sub.get("is_cascade")) else "🔄")
-        status_label = "Direct Free" if (isinstance(sub, dict) and sub.get("is_free")) else ("Cascade" if (isinstance(sub, dict) and sub.get("is_cascade")) else "Merged")
-
-        lines.append(
-            f"• **Lec {duty.get('lec_no')}** ({duty.get('time', '')}) [**Div {duty.get('division', '')}**] (Room {duty.get('room', '')}):\n"
-            f"  Subject: `{duty.get('subject', '')}({fac_initial})`\n"
-            f"  Proxy: **{proxy_subj}** by **{sub_name}** (`{sub_init}`) {status_icon} *({status_label})*"
-        )
-        chain = sub.get("chain", []) if isinstance(sub, dict) else []
-        if chain:
-            for step_idx, step in enumerate(chain, 1):
-                lines.append(
-                    f"  ↳ 🔗 *Cascade Step {step_idx}:* `{step.get('reliever')}` ({step.get('subject')}) "
-                    f"relieves `{step.get('relieved')}` in **Div {step.get('division')}** (Room {step.get('room')})"
-                )
+    for plan_index, plan in enumerate(plans):
+        selected_mark = " ✅ Selected" if plan_index == selected_plan_idx else ""
+        lines.append(f"📋 **Option {plan_index + 1}{selected_mark}:** {plan['title']}")
+        lines.append(format_check_adjustment_table(plan))
         lines.append("")
+    lines.append("\nLegend: Free = directly available | Cascade = valid multi-hop chain | Merged = merged class")
 
-    # Summary of other options
-    if len(plans) > 1:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("📊 **Available Options:**")
-        for p_i, p in enumerate(plans):
-            marker = "👉 " if p_i == selected_plan_idx else "• "
-            lines.append(f"{marker}**Option {p_i+1}:** {p['title']}")
-        lines.append("")
+    lines.append("\nTap an option below to select it for the leave application.")
 
     kb = []
     # Option buttons
@@ -6204,6 +6442,7 @@ async def display_check_load_results(query, context: ContextTypes.DEFAULT_TYPE, 
         kb.append(opt_row)
 
     kb.append([InlineKeyboardButton("💬 Copy Student WhatsApp Messages", callback_data="CHK_SHOW_WA")])
+    kb.append([InlineKeyboardButton("🚫 Exclude Proxy / Recalculate", callback_data="CHK_EXCLUDE_PROXY")])
     kb.append([
         InlineKeyboardButton("⚙️ Change Constraints", callback_data="CHK_CHANGE_CONSTRAINTS"),
         InlineKeyboardButton("📅 Change Date", callback_data="CHK_CHANGE_DATE")
@@ -6226,6 +6465,40 @@ async def check_load_view_picked(update: Update, context: ContextTypes.DEFAULT_T
     data = query.data
     cdata = context.user_data.setdefault("check_load", {})
 
+    if data == "CHK_EXCLUDE_PROXY":
+        return await prompt_check_excluded_faculty(query, context)
+    if data.startswith("CHK_EXCL_FAC:"):
+        cdata["exclusion_pending_faculty"] = data.split(":", 1)[1].upper().replace(" ", "")
+        return await prompt_check_exclusion_lectures(query, context)
+    if data.startswith("CHK_EXCL_LEC:"):
+        faculty = cdata.get("exclusion_pending_faculty", "")
+        if faculty:
+            exclusions = cdata.setdefault("excluded_faculty_lectures", {})
+            selected = set(exclusions.get(faculty, []))
+            lecture = data.split(":", 1)[1]
+            if lecture == "FULL":
+                selected = {"full_day"}
+            else:
+                selected.discard("full_day")
+                lecture_no = int(lecture)
+                if lecture_no in selected:
+                    selected.remove(lecture_no)
+                else:
+                    selected.add(lecture_no)
+            if selected:
+                exclusions[faculty] = sorted(selected, key=lambda value: (value == "full_day", str(value)))
+            else:
+                exclusions.pop(faculty, None)
+        return await prompt_check_exclusion_lectures(query, context)
+    if data == "CHK_EXCL_DONE":
+        cdata.pop("exclusion_pending_faculty", None)
+        return await prompt_check_excluded_faculty(query, context)
+    if data == "CHK_EXCL_RECALCULATE":
+        cdata.pop("exclusion_pending_faculty", None)
+        return await run_and_display_check_load(query, context)
+    if data == "CHK_EXCL_BACK":
+        cdata.pop("exclusion_pending_faculty", None)
+        return await display_check_load_results(query, context, selected_plan_idx=cdata.get("selected_plan_idx", 0), show_whatsapp=False)
     if data == "CMD_WELCOME":
         return await return_to_home_screen(query, context)
     if data == "CHK_CHANGE_FACULTY":
