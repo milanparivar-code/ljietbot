@@ -15,7 +15,13 @@ faculty continue using the bot in Telegram.
    running**.
 
 Never upload the local `.env` file or real credentials to GitHub. The
-`streamlit_upload.zip` archive intentionally excludes `.env`.
+`streamlit_upload.zip` archive intentionally excludes `.env` and the local
+`faculty_store.json` credential store. Faculty members can register through
+`/register` after the bot starts.
+
+Streamlit Cloud storage is not a permanent database. If registered profiles
+must survive app restarts, move the faculty store to a persistent database
+before production use.
 
 ## Local test
 
