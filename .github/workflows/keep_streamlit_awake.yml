@@ -10,11 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Open Streamlit application
+      - name: Visit Streamlit app
         run: |
-          curl --location \
-               --fail \
+          curl --head \
+               --location \
+               --max-redirs 5 \
+               --user-agent "Mozilla/5.0 (compatible; Streamlit-KeepAlive/1.0)" \
+               --connect-timeout 30 \
+               --max-time 120 \
                --silent \
                --show-error \
-               --max-time 60 \
-               "https://ljietbotv11.streamlit.app/" > /dev/null
+               "https://ljietbotv11.streamlit.app/" || true
