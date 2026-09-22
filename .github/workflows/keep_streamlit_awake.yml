@@ -1,0 +1,20 @@
+name: Keep Streamlit App Awake
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-streamlit-app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Open Streamlit application
+        run: |
+          curl --location \
+               --fail \
+               --silent \
+               --show-error \
+               --max-time 60 \
+               "https://ljietbotv11.streamlit.app/" > /dev/null
